@@ -1,15 +1,16 @@
-// server.js - Backend API for chatbot
+// server.js - Backend API for chatbot (Vercel compatible)
 const express = require('express');
 const cors = require('cors');
 const sql = require('mssql');
 const axios = require('axios');
-require('dotenv').config();
 
 const app = express();
-const PORT = process.env.PORT || 3001;
 
 // Middleware
-app.use(cors());
+app.use(cors({
+  origin: process.env.ALLOWED_ORIGINS ? process.env.ALLOWED_ORIGINS.split(',') : '*',
+  credentials: true
+}));
 app.use(express.json());
 
 // SQL Server configuration
@@ -24,8 +25,8 @@ const sqlConfig = {
     idleTimeoutMillis: 30000
   },
   options: {
-    encrypt: true, // for azure
-    trustServerCertificate: true // change to true for local dev / self-signed certs
+    encrypt: true,
+    trustServerCertificate: true
   }
 };
 
@@ -33,36 +34,45 @@ const sqlConfig = {
 const CLAUDE_API_KEY = process.env.CLAUDE_API_KEY;
 const CLAUDE_API_URL = 'https://api.anthropic.com/v1/messages';
 
-// Database connection pool
-let pool;
-
-async function connectToDatabase() {
+// Database connection function for serverless
+async function getDatabaseConnection() {
   try {
-    pool = await sql.connect(sqlConfig);
-    console.log('Connected to SQL Server');
+    const pool = await sql.connect(sqlConfig);
+    return pool;
   } catch (err) {
     console.error('Database connection failed:', err);
+    throw err;
   }
 }
 
-// Initialize database connection
-connectToDatabase();
-
 // Endpoint to get available tables
 app.get('/api/tables', async (req, res) => {
+  let pool;
   try {
+    pool = await getDatabaseConnection();
     const result = await pool.request()
       .query("SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE = 'BASE TABLE'");
     res.json(result.recordset.map(row => row.TABLE_NAME));
   } catch (err) {
+    console.error('Tables endpoint error:', err);
     res.status(500).json({ error: err.message });
+  } finally {
+    if (pool) {
+      try {
+        await pool.close();
+      } catch (closeErr) {
+        console.error('Error closing pool:', closeErr);
+      }
+    }
   }
 });
 
 // Endpoint to get table schema
 app.get('/api/tables/:tableName/schema', async (req, res) => {
+  let pool;
   try {
     const { tableName } = req.params;
+    pool = await getDatabaseConnection();
     const result = await pool.request()
       .input('tableName', sql.VarChar, tableName)
       .query(`
@@ -77,14 +87,27 @@ app.get('/api/tables/:tableName/schema', async (req, res) => {
       `);
     res.json(result.recordset);
   } catch (err) {
+    console.error('Schema endpoint error:', err);
     res.status(500).json({ error: err.message });
+  } finally {
+    if (pool) {
+      try {
+        await pool.close();
+      } catch (closeErr) {
+        console.error('Error closing pool:', closeErr);
+      }
+    }
   }
 });
 
 // Main chat endpoint
 app.post('/api/chat', async (req, res) => {
+  let pool;
   try {
     const { message, conversationHistory = [] } = req.body;
+
+    // Get database connection
+    pool = await getDatabaseConnection();
 
     // Get list of available tables for context
     const tablesResult = await pool.request()
@@ -139,7 +162,7 @@ app.post('/api/chat', async (req, res) => {
       const parsedResponse = JSON.parse(claudeMessage);
       
       if (parsedResponse.needsQuery && parsedResponse.query) {
-        // Execute the SQL query
+        // Execute the SQL query using the same pool connection
         const result = await pool.request().query(parsedResponse.query);
         queryResult = result.recordset;
         
@@ -161,12 +184,21 @@ app.post('/api/chat', async (req, res) => {
 
   } catch (err) {
     console.error('Chat endpoint error:', err);
-    res.status(500).json({ error: 'Internal server error' });
+    res.status(500).json({ error: 'Internal server error', details: err.message });
+  } finally {
+    if (pool) {
+      try {
+        await pool.close();
+      } catch (closeErr) {
+        console.error('Error closing pool:', closeErr);
+      }
+    }
   }
 });
 
 // Execute custom SQL query (for testing)
 app.post('/api/query', async (req, res) => {
+  let pool;
   try {
     const { query } = req.body;
     
@@ -175,19 +207,27 @@ app.post('/api/query', async (req, res) => {
       return res.status(400).json({ error: 'Only SELECT queries are allowed' });
     }
 
+    pool = await getDatabaseConnection();
     const result = await pool.request().query(query);
     res.json(result.recordset);
   } catch (err) {
+    console.error('Query endpoint error:', err);
     res.status(500).json({ error: err.message });
+  } finally {
+    if (pool) {
+      try {
+        await pool.close();
+      } catch (closeErr) {
+        console.error('Error closing pool:', closeErr);
+      }
+    }
   }
 });
 
-app.get('/', (req, res) => {
-    res.send('Hello World');
-})
-
-app.listen(PORT, () => {
-  console.log(`Server running on port ${PORT}`);
+// Health check endpoint
+app.get('/api/health', (req, res) => {
+  res.json({ status: 'OK', timestamp: new Date().toISOString() });
 });
 
+// For Vercel deployment
 module.exports = app;
