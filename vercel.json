@@ -11,5 +11,13 @@
       "src": "/(.*)",
       "dest": "/server.js"
     }
-  ]
+  ],
+  "env": {
+    "DB_SERVER": "@db_server",
+    "DB_NAME": "@db_name",
+    "DB_USER": "@db_user",
+    "DB_PASSWORD": "@db_password",
+    "CLAUDE_API_KEY": "@claude_api_key",
+    "ALLOWED_ORIGINS": "@allowed_origins"
+  }
 }
