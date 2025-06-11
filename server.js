@@ -225,7 +225,7 @@ app.post('/api/query', async (req, res) => {
 });
 
 app.get('/', (req, res) => {
-  res.send('Hello Worlds');
+  res.send('Hello Worldss');
 })
 
 // Health check endpoint
