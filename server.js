@@ -224,6 +224,10 @@ app.post('/api/query', async (req, res) => {
   }
 });
 
+app.get('/', (req, res) => {
+  res.send('Hello World');
+})
+
 // Health check endpoint
 app.get('/api/health', (req, res) => {
   res.json({ status: 'OK', timestamp: new Date().toISOString() });
